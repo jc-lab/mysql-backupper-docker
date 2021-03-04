@@ -1,6 +1,6 @@
-# etcd-backupper
+# mysql-backupper
 
-Docker image : `jclab/etcd-backupper:release-0.0.1`
+Docker image : `jclab/mysql-backupper:release-0.0.1`
 
 # Example
 
@@ -12,12 +12,23 @@ Secret:
 kind: Secret
 apiVersion: v1
 metadata:
-  name: k8s-backup-etcd-ssh
-  namespace: kube-system
+  name: mysql-backup-ssh-cred
 type: Opaque
 data:
   privkey.pem: 'BASE64 ENCODED PRIVATE KEY'
   known_hosts: 'BASE64 ENCODED KNOWN HOSTS'
+
+---
+
+kind: Secret
+apiVersion: v1
+metadata:
+  name: mysqk-backup-db-cred
+type: Opaque
+data:
+  host: 'BASE64 ENCODED HOST'
+  username: 'BASE64 ENCODED USERNAME'
+  password: 'BASE64 ENCODED PASSWORD'
 ```
 
 Cron Job
@@ -25,8 +36,7 @@ Cron Job
 kind: CronJob
 apiVersion: batch/v1beta1
 metadata:
-  name: k8s-cluster-etcd-backup-cronjob
-  namespace: kube-system
+  name: k8s-cluster-mysql-backup-cronjob
 spec:
   schedule: 0 0 * * *
   concurrencyPolicy: Allow
@@ -35,54 +45,35 @@ spec:
     metadata:
       creationTimestamp: null
       labels:
-        job: k8s-cluster-etcd-backup-cronjob
+        job: k8s-cluster-mysql-backup-cronjob
     spec:
       template:
         metadata:
           creationTimestamp: null
           labels:
-            job: k8s-cluster-etcd-backup-cronjob
+            job: k8s-cluster-mysql-backup-cronjob
         spec:
           volumes:
-            - name: etcd-certs
-              hostPath:
-                path: /etc/kubernetes/pki/etcd
-                type: DirectoryOrCreate
             - name: ssh-secret
               secret:
-                secretName: k8s-backup-etcd-ssh
+                secretName: mysql-backup-ssh-cred
                 defaultMode: 400
           containers:
             - name: main
-              image: 'jclab/etcd-backupper:release-0.0.1'
+              image: 'jclab/mysql-backupper:release-0.0.1'
               command:
                 - /bin/bash
                 - '-c'
                 - >-
                   set -e;
-                  BACKUP_FILE_NAME=etcd-`date "+%Y-%m-%d_%H-%M-%S"`-snapshot.bin;
+                  BACKUP_FILE_NAME=mysql-`date "+%Y-%m-%d_%H-%M-%S"`.sql;
                   export BACKUP_FILE=/tmp/${BACKUP_FILE_NAME};
-                  export REMOTE_PATH=/backup/zeron-k8s-etcd/${BACKUP_FILE_NAME};
-                  ETCDCTL_API=3 etcdctl --endpoints
-                  https://${K8S_NODE_HOST_IP}:2379
-                  --cacert=/etc/kubernetes/pki/etcd/ca.crt
-                  --cert=/etc/kubernetes/pki/etcd/server.crt
-                  --key=/etc/kubernetes/pki/etcd/server.key snapshot save
-                  ${BACKUP_FILE};
+                  export REMOTE_PATH=/backup/mysql/${BACKUP_FILE_NAME};
+                  /opt/mysql_dump.sh;
                   /opt/scp_backup.sh
               env:
-                - name: ETCDCTL_API
-                  value: '3'
-                - name: K8S_NODE_NAME
-                  valueFrom:
-                    fieldRef:
-                      apiVersion: v1
-                      fieldPath: spec.nodeName
-                - name: K8S_NODE_HOST_IP
-                  valueFrom:
-                    fieldRef:
-                      apiVersion: v1
-                      fieldPath: status.hostIP
+                - name: MYSQLDUMP_OPTIONS
+                  value: '--all-databases --hex-blob'
                 - name: SSH_KEY_FILE
                   value: /root/ssh-secret/privkey.pem
                 - name: SSH_KNOWN_HOSTS_FILE
@@ -91,27 +82,28 @@ spec:
                   value: 'BACKUP_REMOTE_SERVER'
                 - name: REMOTE_USER
                   value: 'BACKUP_REMOTE_USER'
+                - name: MYSQL_HOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: mysqk-backup-db-cred
+                      value: host
+                - name: MYSQL_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: mysqk-backup-db-cred
+                      value: username
+                - name: MYSQL_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: mysqk-backup-db-cred
+                      value: password
               resources: {}
               volumeMounts:
-                - name: etcd-certs
-                  mountPath: /etc/kubernetes/pki/etcd
                 - name: ssh-secret
                   mountPath: /root/ssh-secret
               terminationMessagePath: /dev/termination-log
               terminationMessagePolicy: File
               imagePullPolicy: IfNotPresent
-          tolerations:
-            # this toleration is to have the daemonset runnable on master nodes
-            # remove it if your masters can't run pods
-            - key: node-role.kubernetes.io/master
-              effect: NoSchedule
-          affinity:
-            nodeAffinity:
-              requiredDuringSchedulingIgnoredDuringExecution:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node-role.kubernetes.io/master
-                        operator: Exists
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
 ```
