@@ -53,6 +53,7 @@ spec:
           labels:
             job: k8s-cluster-mysql-backup-cronjob
         spec:
+          restartPolicy: OnFailure
           volumes:
             - name: ssh-secret
               secret:
@@ -86,17 +87,17 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: mysqk-backup-db-cred
-                      value: host
+                      key: host
                 - name: MYSQL_USER
                   valueFrom:
                     secretKeyRef:
                       name: mysqk-backup-db-cred
-                      value: username
+                      key: username
                 - name: MYSQL_PASS
                   valueFrom:
                     secretKeyRef:
                       name: mysqk-backup-db-cred
-                      value: password
+                      key: password
               resources: {}
               volumeMounts:
                 - name: ssh-secret
