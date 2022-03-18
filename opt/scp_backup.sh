@@ -40,6 +40,7 @@ else
 	exit 1
 fi
 
+echo "" >> $PRIV_KEY_FILE
 scp -i "$PRIV_KEY_FILE" $BACKUP_FILE $REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH
 rc=$?
 
